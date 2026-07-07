@@ -1,4 +1,110 @@
-<!DOCTYPE html>
+"""
+Generuoja reports/etapas1_palyginimas.html iš SQLite duomenų.
+
+Paleidžiama automatiškai iš main.py po kiekvieno duomenų rinkimo, kad HTML
+ataskaita visada atspindėtų naujausią duomenų bazės būklę. Galima paleisti ir
+atskirai: `python -m reports.generate_report`.
+
+Naudoja paprastą token'ų pakeitimą (str.replace), ne str.format(), nes HTML/CSS/
+JS šablone yra daug riestinių skliaustelių ({}), kuriuos .format() interpretuotų
+kaip vietos rezervavimo ženklus.
+"""
+
+import json
+import sqlite3
+
+from config import PV_SYSTEMS
+
+SOURCE_PVGIS = "pvgis_historinis_vidurkis"
+SOURCE_FORECAST_SOLAR = "forecast_solar"
+SOURCE_OPEN_METEO = "open_meteo_apskaiciuota"
+
+
+def _rows_to_dataset(rows: list) -> list:
+    """Paverčia SQL eilutes į JS grafikams tinkamą struktūrą, sugrupuotą pagal lokaciją."""
+    by_location = {}
+    for location_key, location_name, estimate_date, pvgis, open_meteo, forecast in rows:
+        if pvgis is None or open_meteo is None or forecast is None:
+            continue  # praleidžiam nepilnas eilutes (pvz. jei viena API grąžino klaidą)
+        system = PV_SYSTEMS[location_key]
+        entry = by_location.setdefault(
+            location_key,
+            {
+                "key": location_key,
+                "name": location_name,
+                "kwp": f"{system.kwp:g} kWp, {system.system_type}",
+                "rows": [],
+            },
+        )
+        entry["rows"].append(
+            {
+                "date": estimate_date,
+                "pvgis": pvgis,
+                "openMeteo": open_meteo,
+                "forecast": forecast,
+            }
+        )
+    return list(by_location.values())
+
+
+def fetch_latest_snapshot(connection: sqlite3.Connection) -> list:
+    """Naujausio paleidimo (paskutinės dienos) prognozuojamos datos, lokacija po lokacijos."""
+    rows = connection.execute(
+        """
+        SELECT location_key, location_name, estimate_date,
+               MAX(CASE WHEN source = ? THEN estimated_kwh END) AS pvgis,
+               MAX(CASE WHEN source = ? THEN estimated_kwh END) AS open_meteo,
+               MAX(CASE WHEN source = ? THEN estimated_kwh END) AS forecast
+        FROM solar_estimates
+        WHERE substr(fetched_at, 1, 10) = (SELECT substr(MAX(fetched_at), 1, 10) FROM solar_estimates)
+        GROUP BY location_key, location_name, estimate_date
+        ORDER BY location_key, estimate_date
+        """,
+        (SOURCE_PVGIS, SOURCE_OPEN_METEO, SOURCE_FORECAST_SOLAR),
+    ).fetchall()
+    return _rows_to_dataset(rows)
+
+
+def fetch_full_history(connection: sqlite3.Connection) -> list:
+    """Visa istorija - kiekvienai datai naujausia žinoma reikšmė (jei buvo keli paleidimai/retry)."""
+    rows = connection.execute(
+        """
+        WITH latest AS (
+            SELECT location_key, location_name, source, estimate_date, estimated_kwh,
+                   ROW_NUMBER() OVER (
+                       PARTITION BY location_key, source, estimate_date
+                       ORDER BY fetched_at DESC
+                   ) AS rn
+            FROM solar_estimates
+        )
+        SELECT location_key, location_name, estimate_date,
+               MAX(CASE WHEN source = ? THEN estimated_kwh END) AS pvgis,
+               MAX(CASE WHEN source = ? THEN estimated_kwh END) AS open_meteo,
+               MAX(CASE WHEN source = ? THEN estimated_kwh END) AS forecast
+        FROM latest
+        WHERE rn = 1
+        GROUP BY location_key, location_name, estimate_date
+        ORDER BY location_key, estimate_date
+        """,
+        (SOURCE_PVGIS, SOURCE_OPEN_METEO, SOURCE_FORECAST_SOLAR),
+    ).fetchall()
+    return _rows_to_dataset(rows)
+
+
+def generate_report(connection: sqlite3.Connection, output_path: str) -> None:
+    """Sugeneruoja HTML ataskaitą: naujausios dienos stulpeliai + visos istorijos linijos."""
+    snapshot_dataset = fetch_latest_snapshot(connection)
+    history_dataset = fetch_full_history(connection)
+
+    html = _HTML_TEMPLATE.replace(
+        "__SNAPSHOT_DATA__", json.dumps(snapshot_dataset, ensure_ascii=False)
+    ).replace("__HISTORY_DATA__", json.dumps(history_dataset, ensure_ascii=False))
+
+    with open(output_path, "w", encoding="utf-8") as file:
+        file.write(html)
+
+
+_HTML_TEMPLATE = r"""<!DOCTYPE html>
 <html lang="lt">
 <head>
 <meta charset="utf-8">
@@ -213,8 +319,8 @@ gamyba (kWh) =
 </div>
 
 <script>
-  const snapshotDataset = [{"key": "eiguliai", "name": "Kaunas, Eiguliai", "kwp": "5 kWp, stogo elektrinė", "rows": [{"date": "2026-07-07", "pvgis": 20.97, "openMeteo": 7.866666666666666, "forecast": 9.226}, {"date": "2026-07-08", "pvgis": 20.97, "openMeteo": 10.31111111111111, "forecast": 9.931}]}, {"key": "girininkai", "name": "Girininkai I, Kauno raj.", "kwp": "30 kWp, žemės elektrinė", "rows": [{"date": "2026-07-07", "pvgis": 128.99, "openMeteo": 41.53333333333334, "forecast": 56.331}, {"date": "2026-07-08", "pvgis": 128.99, "openMeteo": 53.73333333333334, "forecast": 60.824}]}];
-  const historyDataset = [{"key": "eiguliai", "name": "Kaunas, Eiguliai", "kwp": "5 kWp, stogo elektrinė", "rows": [{"date": "2026-07-07", "pvgis": 20.97, "openMeteo": 7.866666666666666, "forecast": 9.226}, {"date": "2026-07-08", "pvgis": 20.97, "openMeteo": 10.31111111111111, "forecast": 9.931}]}, {"key": "girininkai", "name": "Girininkai I, Kauno raj.", "kwp": "30 kWp, žemės elektrinė", "rows": [{"date": "2026-07-07", "pvgis": 128.99, "openMeteo": 41.53333333333334, "forecast": 56.331}, {"date": "2026-07-08", "pvgis": 128.99, "openMeteo": 53.73333333333334, "forecast": 60.824}]}];
+  const snapshotDataset = __SNAPSHOT_DATA__;
+  const historyDataset = __HISTORY_DATA__;
 
   function niceMax(value) {
     const magnitude = Math.pow(10, Math.floor(Math.log10(value)));
@@ -366,3 +472,13 @@ gamyba (kWh) =
 
 </body>
 </html>
+"""
+
+
+if __name__ == "__main__":
+    from main import DB_PATH
+
+    connection = sqlite3.connect(DB_PATH)
+    generate_report(connection, "reports/etapas1_palyginimas.html")
+    connection.close()
+    print("Ataskaita sugeneruota: reports/etapas1_palyginimas.html")

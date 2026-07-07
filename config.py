@@ -31,6 +31,7 @@ class PVSystem:
     kwp: float
     tilt: float
     azimuth: float
+    system_type: str
 
 
 LOCATIONS = {
@@ -47,6 +48,6 @@ LOCATIONS = {
 }
 
 PV_SYSTEMS = {
-    "eiguliai": PVSystem(kwp=5.0, tilt=35, azimuth=0),
-    "girininkai": PVSystem(kwp=30.0, tilt=30, azimuth=0),
+    "eiguliai": PVSystem(kwp=5.0, tilt=35, azimuth=0, system_type="stogo elektrinė"),
+    "girininkai": PVSystem(kwp=30.0, tilt=30, azimuth=0, system_type="žemės elektrinė"),
 }

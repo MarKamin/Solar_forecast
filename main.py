@@ -19,9 +19,11 @@ from api_clients.forecast_solar import get_forecast_solar_estimate
 from api_clients.open_meteo import get_daily_radiation
 from api_clients.pvgis import get_pvgis_monthly_estimate
 from config import LOCATIONS, PV_SYSTEMS
+from reports.generate_report import generate_report
 from utils.production_estimate import estimate_production_kwh
 
 DB_PATH = "data/solar_data.db"
+REPORT_PATH = "reports/etapas1_palyginimas.html"
 
 SOURCE_PVGIS = "pvgis_historinis_vidurkis"
 SOURCE_FORECAST_SOLAR = "forecast_solar"
@@ -213,6 +215,8 @@ def main() -> None:
             print(f"Klaida renkant duomenis ({location_key}): {error}")
 
     print_comparison_table(connection)
+    generate_report(connection, REPORT_PATH)
+    print(f"\nHTML ataskaita atnaujinta: {REPORT_PATH}")
     connection.close()
 
 
