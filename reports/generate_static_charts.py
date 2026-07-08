@@ -16,6 +16,7 @@ pasirodė santykinai sunkiau nuspėjama (didesnė normalizuota MAE) - būtent to
 sąlygomis geriausiai matosi skirtumas tarp LR ir RF tikslumo.
 """
 
+import base64
 import os
 
 import matplotlib.dates as mdates
@@ -121,6 +122,85 @@ def plot_scatter(period: pd.DataFrame, output_path: str) -> None:
     plt.close(fig)
 
 
+def build_html_viewer(timeseries_path: str, scatter_path: str, output_path: str) -> None:
+    """Sudeda abu PNG į vieną savarankišką HTML failą (base64 įterpta), kad juos būtų
+    galima peržiūrėti naršyklėje, ne tik atidarant atskirus paveikslėlio failus."""
+    def _to_base64(path: str) -> str:
+        with open(path, "rb") as file:
+            return base64.b64encode(file.read()).decode("ascii")
+
+    html = f"""<!DOCTYPE html>
+<html lang="lt">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Statiniai grafikai baigiamajam darbui - LR vs RF</title>
+<style>
+  :root {{
+    --surface-1: #fcfcfb; --page-plane: #f9f9f7; --text-primary: #0b0b0b;
+    --text-secondary: #52514e; --text-muted: #898781; --border: rgba(11,11,11,0.10);
+  }}
+  @media (prefers-color-scheme: dark) {{
+    :root {{
+      --surface-1: #1a1a19; --page-plane: #0d0d0d; --text-primary: #ffffff;
+      --text-secondary: #c3c2b7; --text-muted: #898781; --border: rgba(255,255,255,0.10);
+    }}
+  }}
+  :root[data-theme="dark"] {{
+    --surface-1: #1a1a19; --page-plane: #0d0d0d; --text-primary: #ffffff;
+    --text-secondary: #c3c2b7; --text-muted: #898781; --border: rgba(255,255,255,0.10);
+  }}
+  :root[data-theme="light"] {{
+    --surface-1: #fcfcfb; --page-plane: #f9f9f7; --text-primary: #0b0b0b;
+    --text-secondary: #52514e; --text-muted: #898781; --border: rgba(11,11,11,0.10);
+  }}
+  * {{ box-sizing: border-box; }}
+  body {{ margin: 0; background: var(--page-plane); color: var(--text-primary);
+    font-family: system-ui, -apple-system, "Segoe UI", sans-serif; }}
+  .root {{ max-width: 880px; margin: 0 auto; padding: 32px 20px 48px; }}
+  h1 {{ font-size: 20px; font-weight: 600; margin: 0 0 6px; }}
+  .subtitle {{ color: var(--text-secondary); font-size: 14px; margin: 0 0 24px;
+    max-width: 72ch; line-height: 1.5; }}
+  .panel {{ background: var(--surface-1); border: 1px solid var(--border);
+    border-radius: 10px; padding: 16px; margin-bottom: 24px; }}
+  .panel h2 {{ font-size: 14px; font-weight: 600; margin: 0 0 12px; }}
+  .panel img {{ width: 100%; height: auto; border-radius: 4px; display: block; }}
+  .note {{ font-size: 12.5px; color: var(--text-muted); line-height: 1.6; max-width: 72ch; }}
+</style>
+</head>
+<body>
+<div class="root">
+  <h1>Statiniai grafikai (300 DPI) - baigiamajam darbui</h1>
+  <p class="subtitle">
+    Elektrinė {PLANT_ID}, {PERIOD_START} – {PERIOD_END[:10]} - periodas su besikeičiančiais
+    debesimis (aukščiausias radiacijos "trūkumo" koeficientas testavimo aibėje), kur
+    geriausiai matosi skirtumas tarp linijinės regresijos ir Random Forest tikslumo.
+    Originalūs PNG failai: <code>reports/figures/</code>.
+  </p>
+
+  <div class="panel">
+    <h2>1. Laiko eilutė - prognozė vs reali gamyba</h2>
+    <img src="data:image/png;base64,{_to_base64(timeseries_path)}" alt="Laiko eilutė">
+  </div>
+
+  <div class="panel">
+    <h2>2. Sklaidos grafikas - prognozė vs realybė</h2>
+    <img src="data:image/png;base64,{_to_base64(scatter_path)}" alt="Sklaidos grafikas">
+  </div>
+
+  <p class="note">
+    Šie du grafiko tipai (laiko eilutė + sklaida) yra numatyti kaip standartinė,
+    pakartojama vizualizacijos pora kiekvienam būsimam prognozavimo metodo palyginimui
+    su realia gamyba (LSTM, o vėliau - realūs Lietuvos elektrinių duomenys).
+  </p>
+</div>
+</body>
+</html>
+"""
+    with open(output_path, "w", encoding="utf-8") as file:
+        file.write(html)
+
+
 if __name__ == "__main__":
     os.makedirs(OUTPUT_DIR, exist_ok=True)
 
@@ -131,8 +211,10 @@ if __name__ == "__main__":
 
     timeseries_path = f"{OUTPUT_DIR}/timeseries_prognoze_vs_realybe.png"
     scatter_path = f"{OUTPUT_DIR}/sklaida_prognoze_vs_realybe.png"
+    html_path = "reports/statiniai_grafikai.html"
 
     plot_timeseries(period_data, timeseries_path)
     plot_scatter(period_data, scatter_path)
+    build_html_viewer(timeseries_path, scatter_path, html_path)
 
-    print(f"Grafikai išsaugoti:\n  {timeseries_path}\n  {scatter_path}")
+    print(f"Grafikai išsaugoti:\n  {timeseries_path}\n  {scatter_path}\n  {html_path}")
