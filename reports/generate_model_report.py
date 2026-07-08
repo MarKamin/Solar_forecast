@@ -130,6 +130,47 @@ _HTML_TEMPLATE = r"""<!DOCTYPE html>
       </p>
       <div id="comparison"></div>
       <div id="content"></div>
+
+      <h2 class="section-title">Kas iš viso čia daroma ir kodėl</h2>
+      <div class="note" style="max-width: none;">
+        <p><b>Tikslas.</b> Šis etapas NĖRA bandymas sukurti galutinį saulės elektrinės
+        prognozės modelį. Tikslas - <b>paruošti ir patikrinti visą ML vamzdyną</b>
+        (duomenų įkėlimas → požymiai → chronologinis train/test split → treniravimas →
+        MAE/RMSE/R² vertinimas), naudojant duomenų rinkinį, kuriame yra REALI, išmatuota
+        gamyba (ne teoriškai apskaičiuota) - kol laukiama sutarimo dėl realių Lietuvos
+        elektrinių duomenų prieigos.</p>
+
+        <p><b>Ko ieškojome.</b> Ar iš oro sąlygų (aplinkos/panelio temperatūra, radiacija)
+        galima nuspėti realią pagamintą galią, ir kuris modelio tipas (paprasta formulė vs
+        medžių ansamblis) tai daro tiksliau bei patikimiau.</p>
+
+        <p><b>Ką radome:</b></p>
+        <ul style="margin: 4px 0 12px; padding-left: 20px;">
+          <li>Abu modeliai paaiškina >92% duomenų svyravimų (R² > 0.92) - radiacija yra
+          aiškiai dominuojantis veiksnys (Random Forest jai priskiria 91,5% svarbos).</li>
+          <li><b>Random Forest tikslesnis</b> už linijinę regresiją (MAE 665,95 W vs
+          1039,00 W) - jis pats atrado netiesinę radiacijos/temperatūros sąveiką, kurią
+          linijinei regresijai reikėjo aiškiai nurodyti rankomis sukurtu požymiu.</li>
+          <li>Rankomis sukurtas <code>IRRADIATION_X_TEMP</code> požymis patvirtino fizikinę
+          prielaidą - jo koeficientas neigiamas, t.y. panelio efektyvumas tikrai mažėja
+          įkaitus, net šiame nedideliame duomenų rinkinyje.</li>
+          <li>Naktį (kai radiacija = 0) linijinė regresija prognozuodavo fiziškai
+          neįmanomas NEIGIAMAS reikšmes - tai atskleidė realų paprasto linijinio modelio
+          apribojimą, kurį reikėjo taisyti (<code>clip</code> iki 0). Random Forest šios
+          problemos neturėjo iš principo.</li>
+        </ul>
+
+        <p><b>Svarbiausias apribojimas.</b> Duomenys - iš dviejų Indijos elektrinių, kurių
+        klimatas/saulės geometrija visai kitokie nei Lietuvoje. Šio modelio tikslumo
+        SKAIČIŲ tiesiogiai pritaikyti Lietuvai negalima - vertinga yra pati METODIKA
+        (kaip apdoroti duomenis, kaip dalinti train/test, kokias metrikas naudoti), kuri
+        bus panaudota nepakeista, kai atsiras realūs Lietuvos duomenys.</p>
+
+        <p><b>Kitas žingsnis (vėliau).</b> LSTM modelis, kuris - skirtingai nuo abiejų
+        dabartinių baseline'ų - galėtų išnaudoti laiko eilutės istoriją (ne tik
+        tos pačios minutės orus), o taip pat realūs Lietuvos elektrinių duomenys, kai bus
+        sutarta prieiga.</p>
+      </div>
     </div>
 
     <div class="sidebar">
