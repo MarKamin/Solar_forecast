@@ -1,0 +1,7 @@
+location_key,location_name,date,pvgis_kwh,open_meteo_kwh,forecast_solar_kwh
+eiguliai,"Kaunas, Eiguliai",2026-07-07,20.97,7.866666666666666,9.226
+eiguliai,"Kaunas, Eiguliai",2026-07-08,20.97,7.4111111111111105,9.572
+eiguliai,"Kaunas, Eiguliai",2026-07-09,20.97,2.5555555555555554,9.308
+girininkai,"Girininkai I, Kauno raj.",2026-07-07,128.99,41.53333333333334,56.331
+girininkai,"Girininkai I, Kauno raj.",2026-07-08,128.99,33.800000000000004,58.56
+girininkai,"Girininkai I, Kauno raj.",2026-07-09,128.99,17.86666666666667,56.894

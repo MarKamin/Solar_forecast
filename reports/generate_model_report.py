@@ -10,12 +10,15 @@ koeficientų stulpeline diagrama (jei modelis linijinis - t.y. turi 'coefficient
 (pvz. Random Forest) tam pačiam palyginimui, nekeičiant šablono.
 """
 
+import csv
 import json
+import os
 
 import numpy as np
 from sklearn.metrics import mean_absolute_error, r2_score
 
 RADIATION_BIN_LABELS = ["žema", "vidutinė", "aukšta"]
+CHART_EXPORT_DIR = "data/chart_exports/baseline_ml"
 
 
 def _add_radiation_breakdown(result: dict) -> None:
@@ -77,11 +80,66 @@ def _add_normalized_mae(result: dict) -> None:
     result["normalized_mae"] = rows
 
 
+def _write_csv(rows: list, path: str) -> None:
+    if not rows:
+        return
+    os.makedirs(os.path.dirname(path), exist_ok=True)
+    with open(path, "w", newline="", encoding="utf-8") as file:
+        writer = csv.DictWriter(file, fieldnames=list(rows[0].keys()))
+        writer.writeheader()
+        writer.writerows(rows)
+
+
+def _export_chart_data(results: list) -> None:
+    """Išsaugo švarius, plokščius CSV failus kiekvienam grafikui - kad rašant darbą
+    vėliau nereikėtų kaskart rankiniu būdu filtruoti/perskaičiuoti duomenų.
+    Visi modeliai sudėti į VIENĄ failą kiekvienam grafiko tipui, su stulpeliu 'model'."""
+    scatter_rows, timeseries_rows = [], []
+    coefficient_rows, importance_rows = [], []
+    radiation_rows, normalized_rows = [], []
+
+    for result in results:
+        model = result["name"]
+
+        for date, actual, predicted in zip(result["dates"], result["actual"], result["predicted"]):
+            timeseries_rows.append({"model": model, "date": date, "actual_w": actual, "predicted_w": predicted})
+            scatter_rows.append({"model": model, "actual_w": actual, "predicted_w": predicted})
+
+        for c in result.get("coefficients") or []:
+            coefficient_rows.append({"model": model, "feature": c["name"], "value": c["value"]})
+
+        for f in result.get("feature_importances") or []:
+            importance_rows.append({"model": model, "feature": f["name"], "importance": f["value"]})
+
+        for b in result.get("radiation_bins") or []:
+            radiation_rows.append({
+                "model": model, "radiation_level": b["label"], "n": b["n"],
+                "irradiation_min": b["range"][0], "irradiation_max": b["range"][1],
+                "mae_w": b["mae"], "r2": b["r2"],
+            })
+
+        for p in result.get("normalized_mae") or []:
+            normalized_rows.append({
+                "model": model, "plant_id": p["plant_id"], "max_power_w": p["max_power"],
+                "mean_daytime_power_w": p["mean_daytime_power"], "mae_w": p["mae"],
+                "pct_of_max": p["pct_of_max"], "pct_of_mean": p["pct_of_mean"],
+            })
+
+    _write_csv(scatter_rows, f"{CHART_EXPORT_DIR}/scatter.csv")
+    _write_csv(timeseries_rows, f"{CHART_EXPORT_DIR}/timeseries.csv")
+    _write_csv(coefficient_rows, f"{CHART_EXPORT_DIR}/coefficients.csv")
+    _write_csv(importance_rows, f"{CHART_EXPORT_DIR}/feature_importances.csv")
+    _write_csv(radiation_rows, f"{CHART_EXPORT_DIR}/radiation_bins.csv")
+    _write_csv(normalized_rows, f"{CHART_EXPORT_DIR}/normalized_mae.csv")
+
+
 def generate_report(results: list, output_path: str) -> None:
     for result in results:
         if "irradiation" in result and "plant_id" in result:
             _add_radiation_breakdown(result)
             _add_normalized_mae(result)
+
+    _export_chart_data(results)
 
     html = _HTML_TEMPLATE.replace(
         "__RESULTS_DATA__", json.dumps(results, ensure_ascii=False)

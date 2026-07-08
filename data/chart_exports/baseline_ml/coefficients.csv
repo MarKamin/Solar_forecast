@@ -1,0 +1,6 @@
+model,feature,value
+Linijinė regresija,AMBIENT_TEMPERATURE,-612.2320361356357
+Linijinė regresija,MODULE_TEMPERATURE,582.0262799312807
+Linijinė regresija,IRRADIATION,27917.635076468567
+Linijinė regresija,IRRADIATION_X_TEMP,-410.26523905974307
+Linijinė regresija,intercept,1651.1104155078656

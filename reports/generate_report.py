@@ -10,7 +10,9 @@ JS šablone yra daug riestinių skliaustelių ({}), kuriuos .format() interpretu
 kaip vietos rezervavimo ženklus.
 """
 
+import csv
 import json
+import os
 import sqlite3
 
 from config import PV_SYSTEMS
@@ -18,6 +20,8 @@ from config import PV_SYSTEMS
 SOURCE_PVGIS = "pvgis_historinis_vidurkis"
 SOURCE_FORECAST_SOLAR = "forecast_solar"
 SOURCE_OPEN_METEO = "open_meteo_apskaiciuota"
+
+CHART_EXPORT_DIR = "data/chart_exports/etapas1"
 
 
 def _rows_to_dataset(rows: list) -> list:
@@ -91,10 +95,45 @@ def fetch_full_history(connection: sqlite3.Connection) -> list:
     return _rows_to_dataset(rows)
 
 
+def _flatten_dataset(dataset: list) -> list:
+    """Išskleidžia {key,name,rows:[...]} struktūrą į plokščias eilutes CSV eksportui -
+    kad rašant darbą nereikėtų kaskart rankiniu būdu filtruoti SQLite lentelės."""
+    flat_rows = []
+    for location in dataset:
+        for row in location["rows"]:
+            flat_rows.append({
+                "location_key": location["key"],
+                "location_name": location["name"],
+                "date": row["date"],
+                "pvgis_kwh": row["pvgis"],
+                "open_meteo_kwh": row["openMeteo"],
+                "forecast_solar_kwh": row["forecast"],
+            })
+    return flat_rows
+
+
+def _write_csv(rows: list, path: str) -> None:
+    if not rows:
+        return
+    os.makedirs(os.path.dirname(path), exist_ok=True)
+    with open(path, "w", newline="", encoding="utf-8") as file:
+        writer = csv.DictWriter(file, fieldnames=list(rows[0].keys()))
+        writer.writeheader()
+        writer.writerows(rows)
+
+
 def generate_report(connection: sqlite3.Connection, output_path: str) -> None:
-    """Sugeneruoja HTML ataskaitą: naujausios dienos stulpeliai + visos istorijos linijos."""
+    """Sugeneruoja HTML ataskaitą: naujausios dienos stulpeliai + visos istorijos linijos.
+
+    Papildomai eksportuoja tuos pačius duomenis kaip švarius CSV failus
+    (žr. CHART_EXPORT_DIR) - kad ruošiant darbo grafikus vėliau nereikėtų kaskart
+    rankiniu būdu filtruoti SQLite lentelės.
+    """
     snapshot_dataset = fetch_latest_snapshot(connection)
     history_dataset = fetch_full_history(connection)
+
+    _write_csv(_flatten_dataset(snapshot_dataset), f"{CHART_EXPORT_DIR}/snapshot.csv")
+    _write_csv(_flatten_dataset(history_dataset), f"{CHART_EXPORT_DIR}/timeseries.csv")
 
     html = _HTML_TEMPLATE.replace(
         "__SNAPSHOT_DATA__", json.dumps(snapshot_dataset, ensure_ascii=False)
