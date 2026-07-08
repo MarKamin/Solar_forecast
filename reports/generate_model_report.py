@@ -12,8 +12,77 @@ koeficientų stulpeline diagrama (jei modelis linijinis - t.y. turi 'coefficient
 
 import json
 
+import numpy as np
+from sklearn.metrics import mean_absolute_error, r2_score
+
+RADIATION_BIN_LABELS = ["žema", "vidutinė", "aukšta"]
+
+
+def _add_radiation_breakdown(result: dict) -> None:
+    """Suskirsto DIENOS eilutes (IRRADIATION > 0) į 3 lygius (žema/vidutinė/aukšta) ir
+    paskaičiuoja MAE/R² kiekvienam - parodo, ar bendras R² nėra "padidintas" vien dėl
+    trivialaus nakties/dienos skirtumo (naktį IRRADIATION=0 ir abu modeliai lengvai
+    atspėja galią ≈ 0, kas dirbtinai kelia bendrą R²)."""
+    irradiation = np.array(result["irradiation"])
+    actual = np.array(result["actual"])
+    predicted = np.array(result["predicted"])
+
+    day_mask = irradiation > 0
+    day_irradiation = irradiation[day_mask]
+    day_actual = actual[day_mask]
+    day_predicted = predicted[day_mask]
+
+    edges = np.quantile(day_irradiation, [0, 1 / 3, 2 / 3, 1])
+    bin_index = np.clip(np.digitize(day_irradiation, edges[1:-1]), 0, 2)
+
+    bins = []
+    for i, label in enumerate(RADIATION_BIN_LABELS):
+        mask = bin_index == i
+        if mask.sum() == 0:
+            continue
+        bins.append({
+            "label": label,
+            "n": int(mask.sum()),
+            "range": [float(day_irradiation[mask].min()), float(day_irradiation[mask].max())],
+            "mae": float(mean_absolute_error(day_actual[mask], day_predicted[mask])),
+            "r2": float(r2_score(day_actual[mask], day_predicted[mask])),
+        })
+    result["radiation_bins"] = bins
+
+
+def _add_normalized_mae(result: dict) -> None:
+    """Paskaičiuoja MAE kaip % nuo (a) testavimo periode stebėtos maksimalios galios ir
+    (b) dienos vidurkio - kad rezultatas būtų palyginamas tarp skirtingo dydžio elektrinių
+    (žalia W reikšmė pati savaime nepasako, ar tai daug, ar mažai konkrečiai sistemai)."""
+    plant_id = np.array(result["plant_id"])
+    actual = np.array(result["actual"])
+    predicted = np.array(result["predicted"])
+    irradiation = np.array(result["irradiation"])
+
+    rows = []
+    for pid in sorted(set(plant_id.tolist())):
+        mask = plant_id == pid
+        day_mask = mask & (irradiation > 0)
+        max_power = float(actual[mask].max())
+        mean_daytime_power = float(actual[day_mask].mean()) if day_mask.any() else 0.0
+        mae = float(mean_absolute_error(actual[mask], predicted[mask]))
+        rows.append({
+            "plant_id": int(pid),
+            "max_power": max_power,
+            "mean_daytime_power": mean_daytime_power,
+            "mae": mae,
+            "pct_of_max": mae / max_power * 100 if max_power else 0.0,
+            "pct_of_mean": mae / mean_daytime_power * 100 if mean_daytime_power else 0.0,
+        })
+    result["normalized_mae"] = rows
+
 
 def generate_report(results: list, output_path: str) -> None:
+    for result in results:
+        if "irradiation" in result and "plant_id" in result:
+            _add_radiation_breakdown(result)
+            _add_normalized_mae(result)
+
     html = _HTML_TEMPLATE.replace(
         "__RESULTS_DATA__", json.dumps(results, ensure_ascii=False)
     )
@@ -206,6 +275,14 @@ _HTML_TEMPLATE = r"""<!DOCTYPE html>
         kiekvieną požymį naudojo priimdamas sprendimus.</p>
       </div>
       <div class="info-card">
+        <h3>Radiacijos lygis / normalizuotas MAE</h3>
+        <p>Bendras R² gali atrodyti aukštesnis, nei modelis iš tikrųjų "nusipelno" - naktis
+        (galia=0) yra lengva atspėti abiem modeliams, ir tai kelia bendrą vidurkį. Lentelė
+        parodo MAE/R² TIK dienos metu, pagal radiacijos lygį - ten matosi tikroji sunkumo
+        vieta. Normalizuotas MAE (% nuo maks. galios) leidžia palyginti skirtingo dydžio
+        elektrines tarpusavyje.</p>
+      </div>
+      <div class="info-card">
         <h3>Svarbu</h3>
         <p>Duomenys iš dviejų Indijos elektrinių (Kaggle) - naudojami kaip laikinas
         REALUS target'as, kol laukiama Lietuvos duomenų. Šio modelio tikslumas
@@ -396,6 +473,41 @@ _HTML_TEMPLATE = r"""<!DOCTYPE html>
     return svg;
   }
 
+  function renderRadiationBinsTable(result) {
+    if (!result.radiation_bins) return "";
+    const rows = result.radiation_bins.map((b) => `
+      <tr>
+        <td>${b.label} (${b.range[0].toFixed(2)}-${b.range[1].toFixed(2)})</td>
+        <td>${b.n}</td>
+        <td>${formatW(b.mae)} W</td>
+        <td>${b.r2.toFixed(3)}</td>
+      </tr>`).join("");
+    return `
+      <table class="compare">
+        <caption>MAE/R² pagal radiacijos lygį (tik dienos eilutės) - parodo, kur modeliui iš tikrųjų sunku</caption>
+        <thead><tr><th>Radiacijos lygis</th><th>n</th><th>MAE</th><th>R²</th></tr></thead>
+        <tbody>${rows}</tbody>
+      </table>`;
+  }
+
+  function renderNormalizedMaeTable(result) {
+    if (!result.normalized_mae) return "";
+    const rows = result.normalized_mae.map((p) => `
+      <tr>
+        <td>Elektrinė ${p.plant_id}</td>
+        <td>${formatW(p.max_power)} W</td>
+        <td>${formatW(p.mae)} W</td>
+        <td>${p.pct_of_max.toFixed(1)}%</td>
+        <td>${p.pct_of_mean.toFixed(1)}%</td>
+      </tr>`).join("");
+    return `
+      <table class="compare">
+        <caption>Normalizuotas MAE (kontekstas dydžiui) - palyginama tarp skirtingo dydžio elektrinių</caption>
+        <thead><tr><th>Elektrinė</th><th>Stebėta maks. galia</th><th>MAE</th><th>% nuo maks.</th><th>% nuo dienos vid.</th></tr></thead>
+        <tbody>${rows}</tbody>
+      </table>`;
+  }
+
   document.getElementById("comparison").innerHTML = renderComparisonTable(results);
 
   const content = document.getElementById("content");
@@ -414,6 +526,10 @@ _HTML_TEMPLATE = r"""<!DOCTYPE html>
       </div>
       ${result.coefficients ? `<div class="panels"><div class="panel" style="flex-basis: 100%;"><h3>Koeficientai</h3>${renderCoefficients(result)}</div></div>` : ""}
       ${result.feature_importances ? `<div class="panels"><div class="panel" style="flex-basis: 100%;"><h3>Požymių svarba</h3>${renderFeatureImportances(result)}</div></div>` : ""}
+      <div class="panels">
+        <div class="panel" style="flex-basis: 48%;">${renderRadiationBinsTable(result)}</div>
+        <div class="panel" style="flex-basis: 48%;">${renderNormalizedMaeTable(result)}</div>
+      </div>
     `;
     content.appendChild(section);
   });

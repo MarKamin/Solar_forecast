@@ -55,6 +55,8 @@ def train_and_evaluate(train: pd.DataFrame, test: pd.DataFrame) -> dict:
         "dates": test["DATE_TIME"].dt.strftime("%Y-%m-%d %H:%M").tolist(),
         "actual": test[TARGET].tolist(),
         "predicted": predictions.tolist(),
+        "irradiation": test["IRRADIATION"].tolist(),
+        "plant_id": test["PLANT_ID"].tolist(),
         "metrics": {"mae": mae, "rmse": rmse, "r2": r2},
         "feature_importances": feature_importances,
     }
